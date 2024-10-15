@@ -1,5 +1,6 @@
 import { HubConnectionBuilder } from "@microsoft/signalr";
 import { MessageUpdate } from "@models";
+import { formatAsMarkdown } from "./message-formatter";
 
 const connection = new HubConnectionBuilder()
     .withUrl("/chatHub")
@@ -30,13 +31,13 @@ function appendMessage(message: string, role: "user" | "assistant", messageId?: 
     if (messageId) {
         messageDiv = document.getElementById(messageId) as HTMLDivElement;
         if (messageDiv) {
-            messageDiv.textContent = message;
+            messageDiv.innerHTML = formatAsMarkdown(message);
         }
     } else {
         messageDiv = document.createElement("div");
         messageDiv.id = `message-${crypto.randomUUID()}`;
         messageDiv.className = `message ${role}`;
-        messageDiv.textContent = message;
+        messageDiv.innerHTML = formatAsMarkdown(message);
         chatMessages.appendChild(messageDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
