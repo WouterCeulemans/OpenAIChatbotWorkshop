@@ -5,40 +5,58 @@ using Microsoft.AspNetCore.SignalR;
 using OpenAI.Assistants;
 using System.ClientModel;
 using OpenAIChatbot.Web.Objects;
+using OpenAIChatbot.Web.Persistence.Entities;
+using OpenAIChatbot.Web.Persistence;
 
 namespace OpenAIChatbot.Web.Hubs
 {
     public class ChatHub : Hub
     {
         private readonly AzureOpenAIClient _azureClient;
+        private readonly CosmosService _cosmosService;
         private readonly string _assistantId;
 
-        public ChatHub(AzureOpenAIClient azureClient, IConfiguration configuration)
+        public ChatHub(AzureOpenAIClient azureClient, CosmosService cosmosService, IConfiguration configuration)
         {
             _azureClient = azureClient;
+            _cosmosService = cosmosService;
             _assistantId = configuration.GetValue<string>("AzureOpenAI:AssistantId") ?? throw new InvalidOperationException("AssistantId not provided");
         }
 
-        public async Task<string?> SendMessage(string? threadId, string message)
+        public async Task<Guid?> SendMessage(Guid? conversationId, string message)
         {
             if (string.IsNullOrWhiteSpace(message))
             {
                 return null;
             }
 
+            Conversation? conversation = null;
+            if (conversationId.HasValue)
+            {
+                conversation = await _cosmosService.GetConversation(conversationId.Value);
+            }
+
             AssistantClient assistantClient = _azureClient.GetAssistantClient();
-            if (string.IsNullOrEmpty(threadId))
+            if (conversation is null)
             {
                 var thread = await CreateNewThread(assistantClient, message);
-                threadId = thread.Id;
+                conversation = new Conversation
+                {
+                    Id = Guid.NewGuid(),
+                    ThreadId = thread.Id,
+                    AssistantId = _assistantId,
+                    CreatedOn = thread.CreatedAt
+                };
+
+                await _cosmosService.SaveConversation(conversation);
             }
             else
             {
-                await AddMessageToThread(assistantClient, threadId, message);
+                await AddMessageToThread(assistantClient, conversation.ThreadId, message);
             }
 
             MessageUpdate? messageUpdate = new();
-            AsyncCollectionResult<StreamingUpdate> streamingUpdates = assistantClient.CreateRunStreamingAsync(threadId, _assistantId);
+            AsyncCollectionResult<StreamingUpdate> streamingUpdates = assistantClient.CreateRunStreamingAsync(conversation.ThreadId, conversation.AssistantId);
             await foreach (var update in streamingUpdates)
             {
                 if (update is MessageStatusUpdate messageStatusUpdate)
@@ -56,7 +74,7 @@ namespace OpenAIChatbot.Web.Hubs
                 }
             }
 
-            return threadId;
+            return conversation.Id;
         }
 
         private async Task<AssistantThread> CreateNewThread(AssistantClient assistantClient, string message)

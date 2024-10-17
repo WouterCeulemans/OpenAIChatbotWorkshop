@@ -1,7 +1,9 @@
 using Azure;
 using Azure.AI.OpenAI;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Azure;
 using OpenAIChatbot.Web.Hubs;
+using OpenAIChatbot.Web.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,7 +26,26 @@ builder.Services.AddAzureClients(clientBuilder =>
     });
 });
 
+builder.Services.AddSingleton<CosmosClient>((_) =>
+{
+    var endpoint = builder.Configuration.GetValue<string>("Cosmos:Endpoint")
+        ?? throw new InvalidOperationException("Cosmos endpoint not provided");
+    var key = builder.Configuration.GetValue<string>("Cosmos:Key")
+        ?? throw new InvalidOperationException("Cosmos key not provided");
+    var options = new CosmosClientOptions
+    {
+        SerializerOptions = new CosmosSerializationOptions { PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase }
+    };
+
+    return new CosmosClient(endpoint, key, options);
+});
+
+builder.Services.AddSingleton<CosmosService>();
+
 var app = builder.Build();
+
+var cosmosService = app.Services.GetRequiredService<CosmosService>();
+await cosmosService.EnsureCreated();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

@@ -10,14 +10,14 @@ const messageInput = document.getElementById("message-input") as HTMLInputElemen
 const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const chatMessages = document.getElementById("chat-messages") as HTMLDivElement;
 
-let currentThreadId: string | null = null;
+let currentConversationId: string | null = null;
 
 sendBtn.addEventListener("click", () => {
     const message = messageInput.value;
     if (message) {
-        connection.invoke("SendMessage", currentThreadId, message).then((threadId) => {
-            if (threadId) {
-                currentThreadId = threadId;
+        connection.invoke("SendMessage", currentConversationId, message).then((conversationId) => {
+            if (conversationId) {
+                currentConversationId = conversationId;
             }
         });
         appendMessage(message, "user");

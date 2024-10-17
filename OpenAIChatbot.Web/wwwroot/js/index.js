@@ -58994,13 +58994,13 @@ const connection = new HubConnectionBuilder().withUrl("/chatHub").build();
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
 const chatMessages = document.getElementById("chat-messages");
-let currentThreadId = null;
+let currentConversationId = null;
 sendBtn.addEventListener("click", () => {
   const message = messageInput.value;
   if (message) {
-    connection.invoke("SendMessage", currentThreadId, message).then((threadId) => {
-      if (threadId) {
-        currentThreadId = threadId;
+    connection.invoke("SendMessage", currentConversationId, message).then((conversationId) => {
+      if (conversationId) {
+        currentConversationId = conversationId;
       }
     });
     appendMessage(message, "user");
