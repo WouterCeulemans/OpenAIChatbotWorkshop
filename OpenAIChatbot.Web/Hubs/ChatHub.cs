@@ -23,7 +23,7 @@ namespace OpenAIChatbot.Web.Hubs
             _assistantId = configuration.GetValue<string>("AzureOpenAI:AssistantId") ?? throw new InvalidOperationException("AssistantId not provided");
         }
 
-        public async Task<Guid?> SendMessage(Guid? conversationId, string message)
+        public async Task<Conversation?> SendMessage(Guid? conversationId, string message)
         {
             if (string.IsNullOrWhiteSpace(message))
             {
@@ -74,7 +74,52 @@ namespace OpenAIChatbot.Web.Hubs
                 }
             }
 
-            return conversation.Id;
+            return conversation;
+        }
+
+        public async Task<Conversation[]> GetConversations()
+        {
+            return (await _cosmosService.GetConversations()).OrderByDescending(x => x.CreatedOn).ToArray();
+        }
+
+        public async Task<Message[]> GetConversationMessages(Guid conversationId)
+        {
+            var conversation = await _cosmosService.GetConversation(conversationId);
+            AssistantClient assistantClient = _azureClient.GetAssistantClient();
+            MessageCollectionOptions options = new() { Order = MessageCollectionOrder.Ascending };
+            AsyncCollectionResult<ThreadMessage> threadMessages = assistantClient.GetMessagesAsync(conversation.ThreadId, options);
+            List<Message> messages = [];
+            await foreach (var message in threadMessages)
+            {
+                var messageText = string.Empty;
+                foreach (var content in message.Content)
+                {
+                    messageText += content.Text;
+                }
+
+                messages.Add(new Message
+                {
+                    Role = message.Role.ToString().ToLowerInvariant(),
+                    Text = messageText
+                });
+            }
+
+            return [.. messages];
+        }
+
+        public async Task<bool> DeleteConversation(Guid conversationId)
+        {
+            var conversation = await _cosmosService.GetConversation(conversationId);
+            AssistantClient assistantClient = _azureClient.GetAssistantClient();
+            var result = await assistantClient.DeleteThreadAsync(conversation.ThreadId);
+            if (!result.Value.Deleted)
+            {
+                return false;
+            }
+
+            await _cosmosService.DeleteConversation(conversationId);
+
+            return true;
         }
 
         private async Task<AssistantThread> CreateNewThread(AssistantClient assistantClient, string message)

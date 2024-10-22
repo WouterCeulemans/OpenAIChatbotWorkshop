@@ -17,8 +17,15 @@
 <body>
     <div class="container is-fluid">
         <div class="columns">
+            <!-- Sidebar for Conversations -->
+            <div class="column is-one-quarter" id="sidebar">
+                <button class="button is-primary is-fullwidth mb-2" id="new-conversation-btn">New Conversation</button>
+                <div class="list has-hoverable-list-items has-visible-pointer-controls" id="conversation-history">                    
+                </div>
+            </div>
+
             <!-- Chat Area -->
-            <div class="column is-full">
+            <div class="column is-three-quarter">
                 <section id="chat-section" class="box">
                     <div id="chat-messages" class="content"></div>
                     <div class="field has-addons">

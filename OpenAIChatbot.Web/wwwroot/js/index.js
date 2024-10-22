@@ -58990,22 +58990,38 @@ function formatAsMarkdown(input) {
   const result = md.render(input);
   return result;
 }
+function formatDate(date) {
+  return date.toLocaleString("default", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 const connection = new HubConnectionBuilder().withUrl("/chatHub").build();
 const messageInput = document.getElementById("message-input");
 const sendBtn = document.getElementById("send-btn");
 const chatMessages = document.getElementById("chat-messages");
+const newConversationBtn = document.getElementById("new-conversation-btn");
+const conversationHistory = document.getElementById("conversation-history");
 let currentConversationId = null;
+let cachedConversations = [];
 sendBtn.addEventListener("click", () => {
   const message = messageInput.value;
   if (message) {
-    connection.invoke("SendMessage", currentConversationId, message).then((conversationId) => {
-      if (conversationId) {
-        currentConversationId = conversationId;
+    connection.invoke("SendMessage", currentConversationId, message).then((conversation) => {
+      if (conversation) {
+        currentConversationId = conversation.id;
+        conversation.createdOn = new Date(conversation.createdOn);
+        if (!cachedConversations.some((x) => x.id == conversation.id)) {
+          cachedConversations.unshift(conversation);
+          renderConversations();
+        }
       }
     });
     appendMessage(message, "user");
     messageInput.value = "";
   }
+});
+newConversationBtn.addEventListener("click", () => {
+  currentConversationId = null;
+  chatMessages.innerHTML = "";
+  clearSelectedConversation();
 });
 function appendMessage(message, role, messageId) {
   let messageDiv;
@@ -59023,10 +59039,85 @@ function appendMessage(message, role, messageId) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }
 }
+function loadConversation(conversationId) {
+  currentConversationId = conversationId;
+  chatMessages.innerHTML = "";
+  connection.invoke("GetConversationMessages", conversationId).then((messages) => {
+    messages.forEach((msg) => {
+      appendMessage(msg.text, msg.role);
+    });
+  });
+}
+function clearSelectedConversation() {
+  conversationHistory.querySelectorAll(".list-item").forEach((x) => x.classList.remove("is-selected"));
+}
+function deleteConversation(conversationId) {
+  connection.invoke("DeleteConversation", conversationId).then((success) => {
+    if (success) {
+      cachedConversations = cachedConversations.filter((x) => x.id != conversationId);
+      renderConversations();
+      if (currentConversationId === conversationId) {
+        currentConversationId = null;
+        chatMessages.innerHTML = "";
+      }
+    }
+  });
+}
+function renderConversations() {
+  conversationHistory.innerHTML = cachedConversations.map((conversation) => (
+    /*html*/
+    `
+        <div class="list-item ${conversation.id === currentConversationId ? "is-selected" : ""}" data-conversation-id="${conversation.id}">                            
+            <div class="list-item-content">
+                <div class="list-item-title">${conversation.title || conversation.id}</div>
+                <div class="list-item-description">${formatDate(conversation.createdOn)}</div>
+            </div>
+            <div class="list-item-controls">
+                <div class="buttons is-right">
+                    <button class="button is-danger" data-delete-conversation-btn>
+                        <span class="icon is-small">
+                            <i class="fa-solid fa-trash"></i>
+                        </span>
+                    </button>                                                                        
+                </div>
+            </div>
+        </div>
+    `
+  )).join("");
+}
 connection.on("ReceiveMessageUpdate", (messageUpdate) => {
   var _a2;
   messageUpdate.createdOn = new Date(messageUpdate.createdOn);
   let existingMessageId = (_a2 = document.querySelector("#chat-messages .message.assistant:last-child")) == null ? void 0 : _a2.id;
   appendMessage(messageUpdate.text, messageUpdate.role, existingMessageId);
 });
-connection.start().catch((err) => console.error(err));
+connection.start().then(() => {
+  connection.invoke("GetConversations").then((conversations) => {
+    conversations.forEach((x) => x.createdOn = new Date(x.createdOn));
+    cachedConversations = conversations;
+    renderConversations();
+  });
+}).catch((err) => console.error(err));
+document.addEventListener("click", (e) => {
+  var _a2;
+  if (e.target == null || !(e.target instanceof Element)) {
+    return;
+  }
+  const deleteBtn = e.target.closest("[data-delete-conversation-btn]");
+  if (deleteBtn) {
+    const conversationId = (_a2 = deleteBtn.closest("[data-conversation-id]")) == null ? void 0 : _a2.getAttribute("data-conversation-id");
+    if (conversationId) {
+      deleteConversation(conversationId);
+    }
+    return;
+  }
+  const conversationElement = e.target.closest("[data-conversation-id]");
+  if (conversationElement) {
+    const conversationId = conversationElement.getAttribute("data-conversation-id");
+    if (conversationId) {
+      clearSelectedConversation();
+      conversationElement.classList.add("is-selected");
+      loadConversation(conversationId);
+    }
+  }
+});

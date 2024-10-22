@@ -1,4 +1,5 @@
 ﻿using Microsoft.Azure.Cosmos;
+using Microsoft.Azure.Cosmos.Linq;
 using OpenAIChatbot.Web.Persistence.Entities;
 
 namespace OpenAIChatbot.Web.Persistence
@@ -40,6 +41,18 @@ namespace OpenAIChatbot.Web.Persistence
             await databaseResponse.Database.CreateContainerIfNotExistsAsync(ConversationsContainerName, ConversationsPartitionKeyPath);
         }
 
+        public async Task<Conversation[]> GetConversations()
+        {
+            using FeedIterator<Conversation> setIterator = Conversations.GetItemLinqQueryable<Conversation>().ToFeedIterator();
+            List<Conversation> results = [];
+            while (setIterator.HasMoreResults)
+            {
+                results.AddRange(await setIterator.ReadNextAsync());
+            }
+
+            return [.. results];
+        }
+
         public async Task<Conversation> GetConversation(Guid id)
         {
             string idString = id.ToString();
@@ -50,6 +63,12 @@ namespace OpenAIChatbot.Web.Persistence
         public Task SaveConversation(Conversation conversation)
         {
             return Conversations.UpsertItemAsync(conversation);
+        }
+
+        public Task DeleteConversation(Guid id)
+        {
+            string idString = id.ToString();
+            return Conversations.DeleteItemAsync<Conversation>(idString, new PartitionKey(idString));
         }
     }
 }
