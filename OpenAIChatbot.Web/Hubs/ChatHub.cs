@@ -7,6 +7,7 @@ using System.ClientModel;
 using OpenAIChatbot.Web.Objects;
 using OpenAIChatbot.Web.Persistence.Entities;
 using OpenAIChatbot.Web.Persistence;
+using OpenAI.Chat;
 
 namespace OpenAIChatbot.Web.Hubs
 {
@@ -15,12 +16,19 @@ namespace OpenAIChatbot.Web.Hubs
         private readonly AzureOpenAIClient _azureClient;
         private readonly CosmosService _cosmosService;
         private readonly string _assistantId;
+        private readonly string _defaultModel;
+        private const string GenerateTitlePrompt = """
+            Generate a conversation name based on the following messages. Words length should be around 3 to 10.
+            The name must be in the same languages as the messages. You only answer with the name of the conversation.
+            {0}
+        """;
 
         public ChatHub(AzureOpenAIClient azureClient, CosmosService cosmosService, IConfiguration configuration)
         {
             _azureClient = azureClient;
             _cosmosService = cosmosService;
             _assistantId = configuration.GetValue<string>("AzureOpenAI:AssistantId") ?? throw new InvalidOperationException("AssistantId not provided");
+            _defaultModel = configuration.GetValue<string>("AzureOpenAI:DefaultModel") ?? throw new InvalidOperationException("AssistantId not provided");
         }
 
         public async Task<Conversation?> SendMessage(Guid? conversationId, string message)
@@ -59,7 +67,27 @@ namespace OpenAIChatbot.Web.Hubs
             AsyncCollectionResult<StreamingUpdate> streamingUpdates = assistantClient.CreateRunStreamingAsync(conversation.ThreadId, conversation.AssistantId);
             await foreach (var update in streamingUpdates)
             {
-                if (update is MessageStatusUpdate messageStatusUpdate)
+                if (update is RunUpdate runUpdate)
+                {
+                    if (runUpdate.UpdateKind == StreamingUpdateReason.RunCompleted)
+                    {
+                        List<Message> messages = [
+                            new()
+                            {
+                                Role = nameof(MessageRole.User),
+                                Text = message
+                            },
+                            new()
+                            {
+                                Role = nameof(MessageRole.Assistant),
+                                Text = messageUpdate.Text ?? string.Empty
+                            }
+                        ];
+                        conversation.Title = await GenerateConversationTitle(messages);
+                        await _cosmosService.SaveConversation(conversation);
+                    }
+                }
+                else if (update is MessageStatusUpdate messageStatusUpdate)
                 {
                     if (messageStatusUpdate.UpdateKind == StreamingUpdateReason.MessageCreated)
                     {
@@ -137,6 +165,17 @@ namespace OpenAIChatbot.Web.Hubs
         private async Task AddMessageToThread(AssistantClient assistantClient, string threadId, string message)
         {
             ThreadMessage threadMessage = await assistantClient.CreateMessageAsync(threadId, MessageRole.User, [message]);
+        }
+
+        private async Task<string?> GenerateConversationTitle(List<Message> messages)
+        {
+            ChatClient chatClient = _azureClient.GetChatClient(_defaultModel);
+            var conversation = string.Join("/n", messages.Select(x => $"{x.Role}: {x.Text}"));
+            var prompt = string.Format(GenerateTitlePrompt, conversation);
+            var userMessage = ChatMessage.CreateUserMessage(prompt);
+            ClientResult<ChatCompletion> result = await chatClient.CompleteChatAsync(userMessage);
+
+            return result.Value.Content.FirstOrDefault()?.Text;
         }
     }
 }
