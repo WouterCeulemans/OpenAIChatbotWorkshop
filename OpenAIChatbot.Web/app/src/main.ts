@@ -12,14 +12,18 @@ const sendBtn = document.getElementById("send-btn") as HTMLButtonElement;
 const chatMessages = document.getElementById("chat-messages") as HTMLDivElement;
 const newConversationBtn = document.getElementById("new-conversation-btn") as HTMLButtonElement;
 const conversationHistory = document.getElementById("conversation-history") as HTMLDivElement;
+const fileInput = document.getElementById("file") as HTMLInputElement;
+const fileTags = document.getElementById("file-tags") as HTMLDivElement;
 
 let currentConversationId: string | null = null;
 let cachedConversations: Conversation[] = [];
+let uploadedFiles: { [key: string]: string } = {};
 
 sendBtn.addEventListener("click", () => {
     const message = messageInput.value;
     if (message) {
-        connection.invoke("SendMessage", currentConversationId, message).then((conversation: Conversation) => {
+        const fileIds = Object.values(uploadedFiles);
+        connection.invoke("SendMessage", currentConversationId, message, fileIds).then((conversation: Conversation) => {
             if (conversation) {
                 currentConversationId = conversation.id;
                 conversation.createdOn = new Date(conversation.createdOn);
@@ -31,6 +35,8 @@ sendBtn.addEventListener("click", () => {
         });
         appendMessage(message, "user");
         messageInput.value = '';
+        uploadedFiles = {};
+        renderFiles();
     }
 });
 
@@ -38,6 +44,28 @@ newConversationBtn.addEventListener("click", () => {
     currentConversationId = null;
     chatMessages.innerHTML = '';
     clearSelectedConversation();
+});
+
+fileInput.addEventListener("change", async () => {
+    if (!fileInput.files || fileInput.files.length == 0) {
+        return;
+    }
+
+    const formData = new FormData();
+    for (let i = 0; i < fileInput.files.length; i++) {
+        formData.append('files', fileInput.files[i]);
+    }
+
+    let uploadResponse = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData
+    });
+    let results = await uploadResponse.json() as { [key: string]: string };
+    Object.entries(results).forEach(([key, value]) => {
+        uploadedFiles[key] = value;
+    });
+
+    renderFiles();
 });
 
 function appendMessage(message: string, role: "user" | "assistant", messageId?: string): void {
@@ -103,6 +131,12 @@ function renderConversations() {
             </div>
         </div>
     `).join('')
+}
+
+function renderFiles() {
+    fileTags.innerHTML = Object.keys(uploadedFiles).map(fileName => /*html*/`
+        <span class="tag is-dark">${fileName}</span>
+    `).join('');
 }
 
 connection.on("ReceiveMessageUpdate", (messageUpdate: MessageUpdate) => {

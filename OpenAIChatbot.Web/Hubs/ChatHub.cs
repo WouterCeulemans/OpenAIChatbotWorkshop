@@ -31,7 +31,7 @@ namespace OpenAIChatbot.Web.Hubs
             _defaultModel = configuration.GetValue<string>("AzureOpenAI:DefaultModel") ?? throw new InvalidOperationException("AssistantId not provided");
         }
 
-        public async Task<Conversation?> SendMessage(Guid? conversationId, string message)
+        public async Task<Conversation?> SendMessage(Guid? conversationId, string message, string[] fileIds)
         {
             if (string.IsNullOrWhiteSpace(message))
             {
@@ -47,7 +47,7 @@ namespace OpenAIChatbot.Web.Hubs
             AssistantClient assistantClient = _azureClient.GetAssistantClient();
             if (conversation is null)
             {
-                var thread = await CreateNewThread(assistantClient, message);
+                var thread = await CreateNewThread(assistantClient, message, fileIds);
                 conversation = new Conversation
                 {
                     Id = Guid.NewGuid(),
@@ -60,7 +60,7 @@ namespace OpenAIChatbot.Web.Hubs
             }
             else
             {
-                await AddMessageToThread(assistantClient, conversation.ThreadId, message);
+                await AddMessageToThread(assistantClient, conversation.ThreadId, message, fileIds);
             }
 
             MessageUpdate? messageUpdate = new();
@@ -150,9 +150,10 @@ namespace OpenAIChatbot.Web.Hubs
             return true;
         }
 
-        private async Task<AssistantThread> CreateNewThread(AssistantClient assistantClient, string message)
+        private async Task<AssistantThread> CreateNewThread(AssistantClient assistantClient, string message, string[] fileIds)
         {
             ThreadInitializationMessage initializationMessage = new(MessageRole.User, [message]);
+            AddAttachments(initializationMessage.Attachments, fileIds);
             ThreadCreationOptions options = new()
             {
                 InitialMessages = { initializationMessage }
@@ -162,9 +163,11 @@ namespace OpenAIChatbot.Web.Hubs
             return result.Value;
         }
 
-        private async Task AddMessageToThread(AssistantClient assistantClient, string threadId, string message)
+        private async Task AddMessageToThread(AssistantClient assistantClient, string threadId, string message, string[] fileIds)
         {
-            ThreadMessage threadMessage = await assistantClient.CreateMessageAsync(threadId, MessageRole.User, [message]);
+            MessageCreationOptions options = new();
+            AddAttachments(options.Attachments, fileIds);
+            ThreadMessage threadMessage = await assistantClient.CreateMessageAsync(threadId, MessageRole.User, [message], options);
         }
 
         private async Task<string?> GenerateConversationTitle(List<Message> messages)
@@ -176,6 +179,19 @@ namespace OpenAIChatbot.Web.Hubs
             ClientResult<ChatCompletion> result = await chatClient.CompleteChatAsync(userMessage);
 
             return result.Value.Content.FirstOrDefault()?.Text;
+        }
+
+        private static void AddAttachments(IList<MessageCreationAttachment> attachments, string[] fileIds)
+        {
+            if (fileIds.Length == 0)
+            {
+                return;
+            }
+
+            foreach (var fileId in fileIds)
+            {
+                attachments.Add(new MessageCreationAttachment(fileId, [ToolDefinition.CreateFileSearch()]));
+            }
         }
     }
 }

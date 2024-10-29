@@ -58999,12 +58999,16 @@ const sendBtn = document.getElementById("send-btn");
 const chatMessages = document.getElementById("chat-messages");
 const newConversationBtn = document.getElementById("new-conversation-btn");
 const conversationHistory = document.getElementById("conversation-history");
+const fileInput = document.getElementById("file");
+const fileTags = document.getElementById("file-tags");
 let currentConversationId = null;
 let cachedConversations = [];
+let uploadedFiles = {};
 sendBtn.addEventListener("click", () => {
   const message = messageInput.value;
   if (message) {
-    connection.invoke("SendMessage", currentConversationId, message).then((conversation) => {
+    const fileIds = Object.values(uploadedFiles);
+    connection.invoke("SendMessage", currentConversationId, message, fileIds).then((conversation) => {
       if (conversation) {
         currentConversationId = conversation.id;
         conversation.createdOn = new Date(conversation.createdOn);
@@ -59016,12 +59020,32 @@ sendBtn.addEventListener("click", () => {
     });
     appendMessage(message, "user");
     messageInput.value = "";
+    uploadedFiles = {};
+    renderFiles();
   }
 });
 newConversationBtn.addEventListener("click", () => {
   currentConversationId = null;
   chatMessages.innerHTML = "";
   clearSelectedConversation();
+});
+fileInput.addEventListener("change", async () => {
+  if (!fileInput.files || fileInput.files.length == 0) {
+    return;
+  }
+  const formData = new FormData();
+  for (let i = 0; i < fileInput.files.length; i++) {
+    formData.append("files", fileInput.files[i]);
+  }
+  let uploadResponse = await fetch("/api/files/upload", {
+    method: "POST",
+    body: formData
+  });
+  let results = await uploadResponse.json();
+  Object.entries(results).forEach(([key, value]) => {
+    uploadedFiles[key] = value;
+  });
+  renderFiles();
 });
 function appendMessage(message, role, messageId) {
   let messageDiv;
@@ -59082,6 +59106,14 @@ function renderConversations() {
                 </div>
             </div>
         </div>
+    `
+  )).join("");
+}
+function renderFiles() {
+  fileTags.innerHTML = Object.keys(uploadedFiles).map((fileName) => (
+    /*html*/
+    `
+        <span class="tag is-dark">${fileName}</span>
     `
   )).join("");
 }

@@ -35,3 +35,7 @@
 .list-item.is-selected {
     background-color: var(--be-list-item-hover-color);
 }
+
+.field.has-addons .control .file .file-label .file-cta {
+    border-radius: 0;
+}
