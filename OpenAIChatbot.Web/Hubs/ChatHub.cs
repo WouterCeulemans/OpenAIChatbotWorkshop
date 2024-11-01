@@ -8,6 +8,8 @@ using OpenAIChatbot.Web.Objects;
 using OpenAIChatbot.Web.Persistence.Entities;
 using OpenAIChatbot.Web.Persistence;
 using OpenAI.Chat;
+using OpenAIChatbot.Web.Services;
+using System.Text.Json;
 
 namespace OpenAIChatbot.Web.Hubs
 {
@@ -65,13 +67,40 @@ namespace OpenAIChatbot.Web.Hubs
 
             MessageUpdate? messageUpdate = new();
             AsyncCollectionResult<StreamingUpdate> streamingUpdates = assistantClient.CreateRunStreamingAsync(conversation.ThreadId, conversation.AssistantId);
+            ThreadRun? currentRun;
+            do
+            {
+                currentRun = null;
+                List<ToolOutput> outputsToSubmit = [];
             await foreach (var update in streamingUpdates)
             {
-                if (update is RunUpdate runUpdate)
+                    if (update is RequiredActionUpdate requiredActionUpdate)
                 {
+                        if (requiredActionUpdate.FunctionName == "get_weather")
+                        {
+                            var args = JsonSerializer.Deserialize<WeatherForecastInputData>(requiredActionUpdate.FunctionArguments);
+                            string output = string.Empty;
+                            if (args is not null)
+                            {
+                                var weatherForecast = WeatherForecastService.GetWeatherForecast(args.Location);
+                                output = JsonSerializer.Serialize(weatherForecast);
+                            }
+
+                            var toolOutput = new ToolOutput
+                            {
+                                Output = output,
+                                ToolCallId = requiredActionUpdate.ToolCallId
+                            };
+                            outputsToSubmit.Add(toolOutput);
+                        }
+                    }
+                    else if (update is RunUpdate runUpdate)
+                    {
+                        currentRun = runUpdate;
                     if (runUpdate.UpdateKind == StreamingUpdateReason.RunCompleted)
                     {
-                        List<Message> messages = [
+                            List<Message> messages =
+                            [
                             new()
                             {
                                 Role = nameof(MessageRole.User),
@@ -101,6 +130,13 @@ namespace OpenAIChatbot.Web.Hubs
                     await Clients.Client(Context.ConnectionId).SendAsync("ReceiveMessageUpdate", messageUpdate);
                 }
             }
+
+                if (outputsToSubmit.Count > 0)
+                {
+                    streamingUpdates = assistantClient.SubmitToolOutputsToRunStreamingAsync(currentRun!.ThreadId, currentRun.Id, outputsToSubmit);
+                }
+            }
+            while (currentRun?.Status.IsTerminal == false);
 
             return conversation;
         }
